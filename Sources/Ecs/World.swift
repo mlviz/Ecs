@@ -50,7 +50,7 @@ extension World {
 
         let newArchetype = archetype(oldArchetype.schema.adding(T.self))
         guard newArchetype !== oldArchetype else {
-            oldArchetype.update(T.self, at: oldIndex) { $0 = component }
+            oldArchetype.set(component, at: oldIndex)
             return
         }
 
@@ -93,11 +93,12 @@ extension World {
     }
 
     public func update<T: Component>(
-        _ type: T.Type, for entity: Entity, _ body: (inout T) -> Void
-    ) {
+        _ type: T.Type, for entity: Entity, _ body: (inout T) throws -> Void
+    ) rethrows {
         guard isAlive(entity), let (archetype, index) = entities[entity.id] else { return }
         guard archetype.contains(T.self) else { return }
-        archetype.update(T.self, at: index, body)
+        let pointer = archetype.pointer(for: T.self).advanced(by: index)
+        try body(&pointer.pointee)
     }
 
     public func query<each T>(_ types: repeat (each T).Type) -> Query<repeat each T> {

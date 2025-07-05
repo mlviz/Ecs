@@ -32,7 +32,7 @@ public final class Query<each T: Component> {
         return self
     }
 
-    public func forEachPtr(_ body: (repeat UnsafeMutablePointer<each T>) throws -> Void) rethrows {
+    public func update(_ body: (repeat UnsafeMutablePointer<each T>) throws -> Void) rethrows {
         prepare()
         for archetype in archetypes {
             var pointers = archetype.pointers(for: repeat (each T).self)
@@ -44,7 +44,7 @@ public final class Query<each T: Component> {
     }
 
     public func forEach(_ body: (repeat each T) throws -> Void) rethrows {
-        try forEachPtr { (pointers: repeat UnsafeMutablePointer<each T>) in
+        try update { (pointers: repeat UnsafeMutablePointer<each T>) in
             let values = (repeat (each pointers).pointee)
             try body(repeat each values)
         }

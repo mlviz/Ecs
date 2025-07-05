@@ -125,7 +125,7 @@ struct EcsTests {
     }
 
     @Test
-    func pointerMutationWithForEachPtr() {
+    func pointerMutationWithUpdate() {
         struct HP { var value: Int }
 
         var entities: [Entity] = []
@@ -137,7 +137,7 @@ struct EcsTests {
         }
 
         // Mutate in-place
-        world.query(HP.self).forEachPtr { (hp: UnsafeMutablePointer<HP>) in
+        world.query(HP.self).update { (hp: UnsafeMutablePointer<HP>) in
             hp.pointee.value *= 2
         }
 
@@ -170,8 +170,7 @@ struct EcsTests {
 
         let update = {
             var grounded: [Entity] = []
-            world.query(Position.self, Velocity.self).excluding(Grounded.self).forEachPtr {
-                pos, vel in
+            world.query(Position.self, Velocity.self).excluding(Grounded.self).update { pos, vel in
                 pos.pointee.x += vel.pointee.dx
                 pos.pointee.y += vel.pointee.dy
             }

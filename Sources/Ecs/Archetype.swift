@@ -178,10 +178,10 @@ extension Archetype {
         return pointer.pointee
     }
 
-    public func update<T: Component>(_ type: T.Type, at index: Int, _ body: (inout T) -> Void) {
+    public func set<T: Component>(_ value: T, at index: Int) {
         precondition((0..<count).contains(index), "Index out of bounds")
         let pointer = pointer(for: T.self).advanced(by: index)
-        body(&pointer.pointee)
+        pointer.pointee = value
     }
 
     public func pointer<T: Component>(for type: T.Type) -> UnsafeMutablePointer<T> {
