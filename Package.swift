@@ -5,6 +5,9 @@ import PackageDescription
 
 let package = Package(
     name: "Ecs",
+    platforms: [
+        .macOS(.v14)
+    ],
     products: [
         .library(
             name: "Ecs",

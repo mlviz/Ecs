@@ -1,6 +1,6 @@
 public typealias EntityID = Int
 
-public struct Entity {
+public struct Entity: BitwiseCopyable {
     public let id: EntityID
     public let generation: Int
 
@@ -8,6 +8,8 @@ public struct Entity {
         self.id = id
         self.generation = generation
     }
+
+    static let componentID = ComponentID(Entity.self)
 }
 
 public class EntityManager {
