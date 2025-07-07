@@ -6,7 +6,8 @@ import PackageDescription
 let package = Package(
     name: "Ecs",
     platforms: [
-        .macOS(.v15)
+        .iOS(.v18),
+        .macOS(.v15),
     ],
     products: [
         .library(
@@ -22,5 +23,6 @@ let package = Package(
             name: "EcsTests",
             dependencies: ["Ecs"]
         ),
-    ]
+    ],
+    swiftLanguageModes: [.v6]
 )
