@@ -1,6 +1,6 @@
 public typealias EntityID = Int
 
-public struct Entity: BitwiseCopyable, Equatable {
+public struct Entity: BitwiseCopyable, Hashable, Sendable {
     public let id: EntityID
     public let generation: Int
 

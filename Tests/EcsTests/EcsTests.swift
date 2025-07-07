@@ -8,17 +8,9 @@ struct EcsTests {
 
     @Test
     mutating func multipleComponents() {
-        struct Position {
-            var x: Int
-            var y: Int
-        }
-        struct Velocity {
-            var dx: Int
-            var dy: Int
-        }
-        struct Health {
-            var value: Int
-        }
+        struct Position { var x: Int, y: Int }
+        struct Velocity { var dx: Int, dy: Int }
+        struct Health { var value: Int }
 
         let entity1 = world.create()
         world.insert(Position(x: 10, y: 20), for: entity1)
@@ -416,4 +408,101 @@ struct EcsTests {
             world.destroy(entity)
         }
     }
+
+    @Test
+    mutating func immutableConcurrency() async {
+        struct Distance { var value: Float }
+        struct Enemy {}
+        struct Friend {}
+
+        var entities: [Entity] = []
+
+        let friendsCount = 10
+        let enemiesCount = 10
+
+        var expectedAverageFriendDistance: Float = 0
+        var expectedNearestFriendDistance: Float = Float.greatestFiniteMagnitude
+
+        var expectedAverageEnemyDistance: Float = 0
+        var expectedNearestEnemyDistance: Float = Float.greatestFiniteMagnitude
+
+        for i in 0..<friendsCount {
+            let e = world.create()
+            let distance = Float(i) * 5
+            world.insert(Distance(value: distance), for: e)
+            world.insert(Friend(), for: e)
+            expectedAverageFriendDistance += distance
+            expectedNearestFriendDistance = min(distance, expectedNearestFriendDistance)
+            entities.append(e)
+        }
+        expectedAverageFriendDistance /= Float(friendsCount)
+
+        for i in 0..<enemiesCount {
+            let e = world.create()
+            let distance = Float(i) * 8
+            world.insert(Distance(value: distance), for: e)
+            world.insert(Enemy(), for: e)
+            expectedAverageEnemyDistance += distance
+            expectedNearestEnemyDistance = min(distance, expectedNearestEnemyDistance)
+            entities.append(e)
+        }
+        expectedAverageEnemyDistance /= Float(enemiesCount)
+
+        do {
+            let snapshot = world
+
+            let friendsTask = Task {
+                var totalDistance: Float = 0
+                var nearestDistance = Float.greatestFiniteMagnitude
+                var count = 0
+
+                ViewBuilder<Distance, Friend>()
+                    .view(into: snapshot)
+                    .forEach(in: snapshot) { distance, _ in
+                        totalDistance += distance.value
+                        nearestDistance = min(distance.value, nearestDistance)
+                        count += 1
+                    }
+
+                return (
+                    averageDistance: count > 0 ? totalDistance / Float(count) : 0.0,
+                    nearestDistance: nearestDistance
+                )
+            }
+
+            let enemiesTask = Task {
+                var totalDistance: Float = 0
+                var nearestDistance = Float.greatestFiniteMagnitude
+                var count = 0
+
+                ViewBuilder<Distance, Enemy>()
+                    .view(into: snapshot)
+                    .forEach(in: snapshot) { distance, _ in
+                        totalDistance += distance.value
+                        nearestDistance = min(distance.value, nearestDistance)
+                        count += 1
+                    }
+
+                return (
+                    averageDistance: count > 0 ? totalDistance / Float(count) : 0.0,
+                    nearestDistance: nearestDistance
+                )
+            }
+
+            let (friendsResult, enemiesResult) = await (friendsTask.value, enemiesTask.value)
+
+            #expect(friendsResult.averageDistance == expectedAverageFriendDistance)
+            #expect(friendsResult.nearestDistance == expectedNearestFriendDistance)
+
+            #expect(enemiesResult.averageDistance == expectedAverageEnemyDistance)
+            #expect(enemiesResult.nearestDistance == expectedNearestEnemyDistance)
+
+            #expect(world.id == snapshot.id)
+        }
+
+        for entity in entities {
+            world.destroy(entity)
+        }
+    }
+
 }
