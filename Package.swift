@@ -6,13 +6,13 @@ import PackageDescription
 let package = Package(
     name: "Ecs",
     platforms: [
-        .macOS(.v14)
+        .macOS(.v15)
     ],
     products: [
         .library(
             name: "Ecs",
             targets: ["Ecs"]
-        ),
+        )
     ],
     targets: [
         .target(
@@ -21,6 +21,6 @@ let package = Package(
         .testTarget(
             name: "EcsTests",
             dependencies: ["Ecs"]
-        )
+        ),
     ]
 )

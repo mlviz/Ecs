@@ -1,6 +1,6 @@
 public typealias EntityID = Int
 
-public struct Entity: BitwiseCopyable {
+public struct Entity: BitwiseCopyable, Equatable {
     public let id: EntityID
     public let generation: Int
 
@@ -12,13 +12,11 @@ public struct Entity: BitwiseCopyable {
     static let componentID = ComponentID(Entity.self)
 }
 
-public class EntityManager {
+public struct CowEntityManager: Sendable {
     private var generations: [Int] = []
     private var recycled: [EntityID] = []
 
-    public init() {}
-
-    public func create() -> Entity {
+    public mutating func create() -> Entity {
         if let id = recycled.popLast() {
             return Entity(id: id, generation: generations[id])
         } else {
@@ -28,7 +26,7 @@ public class EntityManager {
         }
     }
 
-    public func destroy(_ entity: Entity) {
+    public mutating func destroy(_ entity: Entity) {
         guard isAlive(entity) else { return }
         generations[entity.id] += 1
         recycled.append(entity.id)

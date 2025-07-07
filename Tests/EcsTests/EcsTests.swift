@@ -2,49 +2,125 @@ import Testing
 
 @testable import Ecs
 
-struct Health: Component { var hp: Int }
-struct TagA: Component {}
-struct TagB: Component {}
-
 @Suite
 struct EcsTests {
-    let world = World()
+    var world = World()
 
     @Test
-    func massiveMutationAndRemoval() {
-        struct Position { var x: Int }
-        struct Velocity { var dx: Int }
-
-        var entities: [Entity] = []
-
-        for i in 0..<1000 {
-            let e = world.create()
-            if i % 2 == 0 { world.insert(Position(x: i), for: e) }
-            if i % 3 == 0 { world.insert(Velocity(dx: i * 2), for: e) }
-            entities.append(e)
+    mutating func multipleComponents() {
+        struct Position {
+            var x: Int
+            var y: Int
+        }
+        struct Velocity {
+            var dx: Int
+            var dy: Int
+        }
+        struct Health {
+            var value: Int
         }
 
-        // Update all Position components
-        world.query(Position.self).forEach { (p: Position) in
-            #expect(p.x % 2 == 0)
-        }
+        let entity1 = world.create()
+        world.insert(Position(x: 10, y: 20), for: entity1)
+        world.insert(Velocity(dx: 5, dy: 5), for: entity1)
+        world.insert(Health(value: 100), for: entity1)
 
-        // Remove Velocity from every third
-        for i in stride(from: 0, to: 1000, by: 3) {
-            world.remove(Velocity.self, for: entities[i])
-        }
+        let entity2 = world.create()
+        world.insert(Position(x: 30, y: 40), for: entity2)
+        world.insert(Velocity(dx: 2, dy: 2), for: entity2)
 
-        // Ensure Velocity is gone from those
-        for i in stride(from: 0, to: 1000, by: 3) {
-            #expect(!world.has(Velocity.self, for: entities[i]))
-        }
+        let entity3 = world.create()
+        world.insert(Position(x: 50, y: 60), for: entity3)
 
-        // Clean up
-        for e in entities { world.destroy(e) }
+        let position1 = world.get(Position.self, for: entity1)
+        let velocity1 = world.get(Velocity.self, for: entity1)
+        let health1 = world.get(Health.self, for: entity1)
+
+        let position2 = world.get(Position.self, for: entity2)
+        let velocity2 = world.get(Velocity.self, for: entity2)
+
+        let position3 = world.get(Position.self, for: entity3)
+
+        #expect(position1 != nil)
+        #expect(position1?.x == 10)
+        #expect(position1?.y == 20)
+        #expect(velocity1 != nil)
+        #expect(velocity1?.dx == 5)
+        #expect(velocity1?.dy == 5)
+        #expect(health1 != nil)
+        #expect(health1?.value == 100)
+
+        #expect(position2 != nil)
+        #expect(position2?.x == 30)
+        #expect(position2?.y == 40)
+        #expect(velocity2 != nil)
+        #expect(velocity2?.dx == 2)
+        #expect(velocity2?.dy == 2)
+
+        #expect(position3 != nil)
+        #expect(position3?.x == 50)
+        #expect(position3?.y == 60)
+
+        var entitiesWithPosition: [Entity] = []
+        var entitiesWithVelocity: [Entity] = []
+
+        ViewBuilder<Entity>()
+            .including(Position.self)
+            .view(into: world)
+            .forEach(in: world) { entitiesWithPosition.append($0) }
+
+        ViewBuilder<Entity>()
+            .including(Velocity.self)
+            .view(into: world)
+            .forEach(in: world) { entitiesWithVelocity.append($0) }
+
+        #expect(entitiesWithPosition.count == 3)
+        #expect(entitiesWithPosition.contains(entity1))
+        #expect(entitiesWithPosition.contains(entity2))
+        #expect(entitiesWithPosition.contains(entity3))
+
+        #expect(entitiesWithVelocity.count == 2)
+        #expect(entitiesWithVelocity.contains(entity1))
+        #expect(entitiesWithVelocity.contains(entity2))
+        #expect(!entitiesWithVelocity.contains(entity3))
+
+        world.destroy(entity2)
+
+        let removedPosition2 = world.get(Position.self, for: entity2)
+        let removedVelocity2 = world.get(Velocity.self, for: entity2)
+
+        #expect(removedPosition2 == nil)
+        #expect(removedVelocity2 == nil)
+
+        entitiesWithPosition.removeAll()
+        entitiesWithVelocity.removeAll()
+
+        ViewBuilder<Entity>()
+            .including(Position.self)
+            .view(into: world)
+            .forEach(in: world) { entitiesWithPosition.append($0) }
+
+        ViewBuilder<Entity>()
+            .including(Velocity.self)
+            .view(into: world)
+            .forEach(in: world) { entitiesWithVelocity.append($0) }
+
+        #expect(entitiesWithPosition.count == 2)
+        #expect(entitiesWithPosition.contains(entity1))
+        #expect(!entitiesWithPosition.contains(entity2))
+        #expect(entitiesWithPosition.contains(entity3))
+
+        #expect(entitiesWithVelocity.count == 1)
+        #expect(entitiesWithVelocity.contains(entity1))
+        #expect(!entitiesWithVelocity.contains(entity2))
+
+        world.destroy(entity1)
+        world.destroy(entity2)
+        world.destroy(entity3)
     }
 
     @Test
-    func componentInsertReinsertEdgeCases() {
+    mutating func insertReinsert() {
         struct Flag { var value: Bool }
 
         let e1 = world.create()
@@ -56,11 +132,9 @@ struct EcsTests {
         #expect(world.get(Flag.self, for: e1)?.value == false)
         #expect(world.get(Flag.self, for: e2)?.value == true)
 
-        // Re-insert component
         world.insert(Flag(value: true), for: e1)
         #expect(world.get(Flag.self, for: e1)?.value == true)
 
-        // Update flag using `update`
         world.update(Flag.self, for: e2) { $0.value = false }
         #expect(world.get(Flag.self, for: e2)?.value == false)
 
@@ -69,139 +143,277 @@ struct EcsTests {
     }
 
     @Test
-    func archetypeTransitioningBulk() {
-        struct A { var x: Int }
-        struct B { var y: Int }
-
-        var entities: [Entity] = []
-
-        for i in 0..<500 {
-            let e = world.create()
-            world.insert(A(x: i), for: e)
-            if i % 2 == 0 { world.insert(B(y: i * 10), for: e) }
-            entities.append(e)
-        }
-
-        // Remove and re-add B to force archetype transitions
-        for e in entities where world.has(B.self, for: e) {
-            world.remove(B.self, for: e)
-            world.insert(B(y: 999), for: e)
-            #expect(world.get(B.self, for: e)?.y == 999)
-        }
-
-        for e in entities { world.destroy(e) }
-    }
-
-    @Test
-    func queryWithExclusionAndInclusion() {
-        struct A { var a: Int }
-        struct B { var b: Int }
-        struct C { var c: Int }
+    mutating func complexView() {
+        struct DivBy2 { var n: Int }
+        struct DivBy3 { var n: Int }
+        struct DivBy5 { var n: Int }
 
         var entities: [Entity] = []
 
         for i in 0..<100 {
             let e = world.create()
-            world.insert(A(a: i), for: e)
-            if i % 2 == 0 { world.insert(B(b: i), for: e) }
-            if i % 3 == 0 { world.insert(C(c: i), for: e) }
+            if i % 2 == 0 { world.insert(DivBy2(n: i), for: e) }
+            if i % 3 == 0 { world.insert(DivBy3(n: i), for: e) }
+            if i % 5 == 0 { world.insert(DivBy5(n: i), for: e) }
             entities.append(e)
         }
 
-        var count = 0
-        world.query(A.self, B.self)
-            .excluding(C.self)
-            .forEach { (a: A, b: B) in
-                #expect(a.a == b.b)
-                #expect(a.a % 2 == 0)
-                #expect(a.a % 3 != 0)
+        var count: Int
+        var expected: Int
+
+        count = 0
+        ViewBuilder<DivBy2, DivBy3, DivBy5>()
+            .view(into: world)
+            .forEach(in: world) { a, b, c in
+                #expect(a.n == b.n && b.n == c.n)
+                let n = a.n
+                #expect(n % 2 == 0)
+                #expect(n % 3 == 0)
+                #expect(n % 5 == 0)
                 count += 1
             }
+        expected = (0..<100).filter { $0 % 2 == 0 && $0 % 3 == 0 && $0 % 5 == 0 }.count
+        #expect(count == expected)
 
-        let expected = (0..<100).filter { $0 % 2 == 0 && $0 % 3 != 0 }.count
-        #expect(count == expected)  // evens minus multiples of 6
+        count = 0
+        ViewBuilder<DivBy2, DivBy5>()
+            .excluding(DivBy3.self)
+            .view(into: world)
+            .forEach(in: world) { a, b in
+                #expect(a.n == b.n)
+                let n = a.n
+                #expect(n % 2 == 0)
+                #expect(n % 3 != 0)
+                #expect(n % 5 == 0)
+                count += 1
+            }
+        expected = (0..<100).filter { $0 % 2 == 0 && $0 % 3 != 0 && $0 % 5 == 0 }.count
+        #expect(count == expected)
+
+        count = 0
+        ViewBuilder<DivBy5>()
+            .excluding(DivBy2.self, DivBy3.self)
+            .view(into: world)
+            .forEach(in: world) { a in
+                #expect(a.n % 2 != 0)
+                #expect(a.n % 3 != 0)
+                #expect(a.n % 5 == 0)
+                count += 1
+            }
+        expected = (0..<100).filter { $0 % 2 != 0 && $0 % 3 != 0 && $0 % 5 == 0 }.count
+        #expect(count == expected)
+
+        count = 0
+        ViewBuilder<Entity>()
+            .including(DivBy3.self)
+            .excluding(DivBy5.self)
+            .view(into: world)
+            .forEach(in: world) { _ in count += 1 }
+        expected = (0..<100).filter { $0 % 3 == 0 && $0 % 5 != 0 }.count
+        #expect(count == expected)
+
+        count = 0
+        ViewBuilder<Entity>()
+            .excluding(DivBy2.self, DivBy3.self, DivBy5.self)
+            .view(into: world)
+            .forEach(in: world) { _ in count += 1 }
+        expected = (0..<100).filter { $0 % 2 != 0 && $0 % 3 != 0 && $0 % 5 != 0 }.count
+        #expect(count == expected)
+
+        count = 0
+        ViewBuilder<DivBy2>()
+            .excluding(Entity.self)
+            .view(into: world)
+            .forEach(in: world) { _ in count += 1 }
+        expected = 0
+        #expect(count == expected)
 
         for e in entities { world.destroy(e) }
     }
 
     @Test
-    func pointerMutationWithUpdate() {
-        struct HP { var value: Int }
+    mutating func tags() {
+        struct Actor {}
+        struct Player {}
+        struct Enemy {}
 
-        var entities: [Entity] = []
+        let entity1 = world.create()
+        let entity2 = world.create()
+        let entity3 = world.create()
 
-        for i in 0..<200 {
-            let e = world.create()
-            world.insert(HP(value: i), for: e)
-            entities.append(e)
-        }
+        world.insert(Actor(), for: entity1)
+        world.insert(Player(), for: entity1)
+        world.insert(Actor(), for: entity2)
+        world.insert(Enemy(), for: entity2)
+        world.insert(Actor(), for: entity3)
 
-        // Mutate in-place
-        world.query(HP.self).update { (hp: UnsafeMutablePointer<HP>) in
-            hp.pointee.value *= 2
-        }
+        #expect(world.get(Actor.self, for: entity1) != nil)
+        #expect(world.get(Actor.self, for: entity2) != nil)
+        #expect(world.get(Actor.self, for: entity3) != nil)
 
-        for e in entities {
-            let v = world.get(HP.self, for: e)?.value
-            #expect(v == e.id * 2)
-            world.destroy(e)
-        }
+        #expect(world.get(Player.self, for: entity1) != nil)
+        #expect(world.get(Player.self, for: entity2) == nil)
+        #expect(world.get(Player.self, for: entity3) == nil)
+
+        #expect(world.get(Enemy.self, for: entity1) == nil)
+        #expect(world.get(Enemy.self, for: entity2) != nil)
+        #expect(world.get(Enemy.self, for: entity3) == nil)
+
+        var actors: [Entity] = []
+        ViewBuilder<Entity>()
+            .including(Actor.self)
+            .view(into: world)
+            .forEach(in: world) { actors.append($0) }
+        #expect(actors.count == 3)
+        #expect(actors.contains(entity1))
+        #expect(actors.contains(entity2))
+        #expect(actors.contains(entity3))
+
+        var players: [Entity] = []
+        ViewBuilder<Entity>()
+            .including(Player.self)
+            .view(into: world)
+            .forEach(in: world) { players.append($0) }
+        #expect(players.count == 1)
+        #expect(players.contains(entity1))
+
+        var enemies: [Entity] = []
+        ViewBuilder<Entity>()
+            .including(Enemy.self)
+            .view(into: world)
+            .forEach(in: world) { enemies.append($0) }
+        #expect(enemies.count == 1)
+        #expect(enemies.contains(entity2))
+
+        var neutrals: [Entity] = []
+        ViewBuilder<Entity>()
+            .including(Actor.self)
+            .excluding(Enemy.self, Player.self)
+            .view(into: world)
+            .forEach(in: world) { neutrals.append($0) }
+        #expect(neutrals.count == 1)
+        #expect(neutrals.contains(entity3))
+
+        world.remove(Enemy.self, for: entity2)
+
+        neutrals.removeAll()
+        ViewBuilder<Entity>()
+            .including(Actor.self)
+            .excluding(Enemy.self, Player.self)
+            .view(into: world)
+            .forEach(in: world) { neutrals.append($0) }
+        #expect(neutrals.count == 2)
+        #expect(neutrals.contains(entity2))
+        #expect(neutrals.contains(entity3))
+
+        world.destroy(entity1)
+        world.destroy(entity2)
+        world.destroy(entity3)
     }
 
     @Test
-    func gravitySample() {
-        struct Position {
-            var x: Float
-            var y: Float
+    mutating func viewCaching() {
+        struct Foo { var value: Int }
+        struct Bar { var value: Int }
+
+        let entities = (0..<10).map { _ in
+            world.create()
         }
 
-        struct Velocity {
-            var dx: Float
-            var dy: Float
+        for (i, e) in entities.enumerated() {
+            world.insert(Foo(value: i), for: e)
+            #expect(world.get(Foo.self, for: e)?.value == i)
         }
 
+        var view = ViewBuilder<Entity, Foo>().view(into: world)
+
+        var visited: Int
+
+        visited = 0
+        view.forEach(in: world) { _, _ in visited += 1 }
+        #expect(visited == entities.count)
+        #expect(view.isValid(for: world))
+
+        let increase = 100
+        view.forEach(in: &world) { entity, foo in
+            foo.pointee.value += increase
+        }
+        #expect(view.isValid(for: world))
+        for (i, e) in entities.enumerated() {
+            #expect(world.get(Foo.self, for: e)?.value == i + increase)
+        }
+
+        for (i, e) in entities.dropLast(5).enumerated() {
+            world.insert(Bar(value: i), for: e)
+        }
+        #expect(!view.isValid(for: world))
+        view.rebuild(for: world)
+        #expect(view.isValid(for: world))
+
+        visited = 0
+        view.forEach(in: world) { _, _ in visited += 1 }
+        #expect(visited == entities.count)
+
+        for entity in entities {
+            world.destroy(entity)
+        }
+
+        #expect(!view.isValid(for: world))
+        view.rebuild(for: world)
+        visited = 0
+        view.forEach(in: world) { _, _ in visited += 1 }
+        #expect(visited == 0)
+    }
+
+    @Test
+    mutating func gravitySample() {
+        struct Position { var y: Float }
+        struct Velocity { var dy: Float }
         struct Grounded {}
 
         let entities = (0..<10).map { _ in world.create() }
         for (i, entity) in entities.enumerated() {
-            world.insert(Position(x: Float(i + 1) * 10, y: Float(i + 1) * 2), for: entity)
-            world.insert(Velocity(dx: 0, dy: -1), for: entity)
+            world.insert(Position(y: Float(i + 1) * 2), for: entity)
+            world.insert(Velocity(dy: -1), for: entity)
         }
 
-        let update = {
+        let update: (inout World) -> Void = { world in
             var grounded: [Entity] = []
-            world.query(Position.self, Velocity.self).excluding(Grounded.self).update { pos, vel in
-                pos.pointee.x += vel.pointee.dx
-                pos.pointee.y += vel.pointee.dy
-            }
-
-            world.query(Position.self, Entity.self).excluding(Grounded.self).forEach {
-                pos, entity in
-                if pos.y <= 0 {
-                    grounded.append(entity)
+            ViewBuilder<Position, Velocity>()
+                .excluding(Grounded.self)
+                .view(into: world)
+                .forEach(in: &world) { pos, vel in
+                    pos.pointee.y += vel.pointee.dy
                 }
-            }
+
+            ViewBuilder<Position, Entity>()
+                .excluding(Grounded.self)
+                .view(into: world)
+                .forEach(in: world) { pos, entity in
+                    if pos.y <= 0 {
+                        grounded.append(entity)
+                    }
+                }
 
             for entity in grounded {
                 world.insert(Grounded(), for: entity)
             }
         }
 
-        for _ in 0..<10 { update() }
+        for _ in 0..<10 { update(&world) }
 
         var groundedCount = 0
-        world.query(Grounded.self).forEach { _ in groundedCount += 1 }
+        ViewBuilder<Grounded>().view(into: world).forEach(in: world) { _ in groundedCount += 1 }
         #expect(groundedCount == 5)
 
-        for _ in 0..<10 { update() }
+        for _ in 0..<10 { update(&world) }
 
         groundedCount = 0
-        world.query(Grounded.self).forEach { _ in groundedCount += 1 }
+        ViewBuilder<Grounded>().view(into: world).forEach(in: world) { _ in groundedCount += 1 }
         #expect(groundedCount == 10)
 
         for entity in entities {
             world.destroy(entity)
         }
     }
-
 }

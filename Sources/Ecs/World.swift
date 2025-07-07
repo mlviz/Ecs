@@ -1,26 +1,46 @@
-public final class World {
-    private var entityManager = EntityManager()
-    public private(set) var entities = [(archetype: Archetype, index: Int)?]()
-    public private(set) var archetypes = [ArchetypeID: Archetype]()
-    public private(set) var archetypesVersion: Int = 0
-    public private(set) var groups = [ComponentID: Set<ArchetypeRef>]()
+import Synchronization
+
+private let globalWorldID = Atomic<UInt>(0)
+
+public final class WorldID: Sendable {
+    public let id = {
+        let (value, _) = globalWorldID.add(1, ordering: .relaxed)
+        return value
+    }()
+}
+
+public struct World: Sendable {
+    private var _id = WorldID()
+    public var id: UInt { _id.id }
+
+    public private(set) var entityManager = CowEntityManager()
+    public private(set) var entities = [(archetypeIndex: Int, entityIndex: Int)?]()
+    public private(set) var archetypes = [Archetype]()
+    public private(set) var indices = [ArchetypeID: Int]()
+    public private(set) var groups = [ComponentID: Set<Int>]()
+    public private(set) var groupsVersion: UInt = 0
 
     private static let entityArchetypeSchema = ArchetypeSchema(componentType: Entity.self)
-
-    public init() {}
 }
 
 // public
 extension World {
-    public func create() -> Entity {
+    public mutating func create() -> Entity {
+        ensureUniqueID()
+
         var entity = entityManager.create()
 
-        let archetype = archetype(Self.entityArchetypeSchema)
+        let archetypeIndex = archetypeIndex(Self.entityArchetypeSchema)
         withUnsafeMutableBytes(of: &entity) {
-            archetype.append([Entity.componentID: $0.baseAddress!])
+            archetypes[archetypeIndex].append([Entity.componentID: $0.baseAddress!])
         }
+        addToGroups(archetypeIndex: archetypeIndex)
 
-        let metadata = (archetype: archetype, index: archetype.count - 1)
+        let metadata = (
+            archetypeIndex: archetypeIndex,
+            entityIndex: archetypes[archetypeIndex].count - 1
+        )
+
         if entities.indices.contains(entity.id) {
             entities[entity.id] = metadata
         } else {
@@ -34,108 +54,152 @@ extension World {
         entityManager.isAlive(entity)
     }
 
-    public func destroy(_ entity: Entity) {
+    public mutating func destroy(_ entity: Entity) {
         guard isAlive(entity) else { return }
 
-        if let (archetype, i) = entities[entity.id] {
-            remove(entity: entity.id, from: archetype, at: i)
+        ensureUniqueID()
+
+        if let (archetypeIndex, entityIndex) = entities[entity.id] {
+            removeEntity(archetypeIndex: archetypeIndex, entityIndex: entityIndex)
         }
         entityManager.destroy(entity)
     }
 
-    public func insert<T: Component>(_ component: T, for entity: Entity) {
+    public mutating func insert<T: Component>(_ component: T, for entity: Entity) {
         precondition(T.self != Entity.self, "Cannot add Entity to an entity")
 
-        guard isAlive(entity), let (oldArchetype, oldIndex) = entities[entity.id] else { return }
+        guard isAlive(entity), let (oldArchetypeIndex, oldEntityIndex) = entities[entity.id]
+        else { return }
 
-        let newArchetype = archetype(oldArchetype.schema.adding(T.self))
-        guard newArchetype !== oldArchetype else {
-            oldArchetype.set(component, at: oldIndex)
+        ensureUniqueID()
+
+        let newSchema = archetypes[oldArchetypeIndex].schema.adding(T.self)
+        let newArchetypeIndex = archetypeIndex(newSchema)
+        guard newArchetypeIndex != oldArchetypeIndex else {
+            archetypes[oldArchetypeIndex][oldEntityIndex] = component
             return
         }
 
+        var data = archetypes[oldArchetypeIndex].read(at: oldEntityIndex)
         var component = component
         withUnsafeMutableBytes(of: &component) {
-            var data = oldArchetype.read(at: oldIndex)
-            data[ComponentID(T.self)] = $0.baseAddress
-
-            newArchetype.append(data)
+            data[ComponentID(T.self)] = UnsafeRawPointer($0.baseAddress)
         }
+        archetypes[newArchetypeIndex].append(data)
+        addToGroups(archetypeIndex: newArchetypeIndex)
 
-        remove(entity: entity.id, from: oldArchetype, at: oldIndex)
-        entities[entity.id] = (archetype: newArchetype, index: newArchetype.count - 1)
+        removeEntity(archetypeIndex: oldArchetypeIndex, entityIndex: oldEntityIndex)
+        entities[entity.id] = (
+            archetypeIndex: newArchetypeIndex,
+            entityIndex: archetypes[newArchetypeIndex].count - 1
+        )
     }
 
-    public func remove<T: Component>(_ type: T.Type, for entity: Entity) {
+    public mutating func remove<T: Component>(_ type: T.Type, for entity: Entity) {
         precondition(T.self != Entity.self, "Cannot remove Entity from an entity")
 
-        guard isAlive(entity), let (oldArchetype, oldIndex) = entities[entity.id] else { return }
-        guard oldArchetype.contains(T.self) else { return }
+        guard isAlive(entity), let (oldArchetypeIndex, oldEntityIndex) = entities[entity.id]
+        else { return }
 
-        let newArchetype = archetype(oldArchetype.schema.removing(T.self))
+        guard archetypes[oldArchetypeIndex].contains(T.self) else { return }
 
-        let data = oldArchetype.read(at: oldIndex)
-        newArchetype.append(data)
+        ensureUniqueID()
 
-        remove(entity: entity.id, from: oldArchetype, at: oldIndex)
-        entities[entity.id] = (archetype: newArchetype, index: newArchetype.count - 1)
-    }
+        let newSchema = archetypes[oldArchetypeIndex].schema.removing(T.self)
+        let newArchetypeIndex = archetypeIndex(newSchema)
 
-    public func has<T: Component>(_ type: T.Type, for entity: Entity) -> Bool {
-        guard isAlive(entity), let (archetype, _) = entities[entity.id] else { return false }
-        return archetype.contains(T.self)
+        let data = archetypes[oldArchetypeIndex].read(at: oldEntityIndex)
+        archetypes[newArchetypeIndex].append(data)
+        addToGroups(archetypeIndex: newArchetypeIndex)
+
+        removeEntity(archetypeIndex: oldArchetypeIndex, entityIndex: oldEntityIndex)
+        entities[entity.id] = (
+            archetypeIndex: newArchetypeIndex,
+            entityIndex: archetypes[newArchetypeIndex].count - 1
+        )
     }
 
     public func get<T: Component>(_ type: T.Type, for entity: Entity) -> T? {
-        guard isAlive(entity), let (archetype, index) = entities[entity.id] else { return nil }
-        guard archetype.contains(T.self) else { return nil }
-        return archetype.get(T.self, at: index)
+        guard isAlive(entity), let (archetypeIndex, entityIndex) = entities[entity.id]
+        else { return nil }
+        return archetypes[archetypeIndex].get(T.self, at: entityIndex)
     }
 
-    public func update<T: Component>(
-        _ type: T.Type, for entity: Entity, _ body: (inout T) throws -> Void
+    public mutating func update<T: Component>(
+        _ type: T.Type,
+        for entity: Entity,
+        _ body: (inout T) throws -> Void
     ) rethrows {
-        guard isAlive(entity), let (archetype, index) = entities[entity.id] else { return }
-        guard archetype.contains(T.self) else { return }
-        let pointer = archetype.pointer(for: T.self).advanced(by: index)
+        guard isAlive(entity), let (archetypeIndex, entityIndex) = entities[entity.id]
+        else { return }
+        guard archetypes[archetypeIndex].contains(T.self) else { return }
+        let pointer: UnsafeMutablePointer<T> = archetypes[archetypeIndex]
+            .pointer(to: T.self)
+            .advanced(by: entityIndex)
         try body(&pointer.pointee)
     }
 
-    public func query<each T>(_ types: repeat (each T).Type) -> Query<repeat each T> {
-        Query(world: self)
+    public func pointer<T: Component>(
+        to type: T.Type,
+        inArchetypeAt i: Int
+    ) -> UnsafePointer<T> {
+        archetypes[i].pointer(to: T.self)
+    }
+
+    public mutating func pointer<T: Component>(
+        to type: T.Type,
+        inArchetypeAt i: Int
+    ) -> UnsafeMutablePointer<T> {
+        archetypes[i].pointer(to: T.self)
     }
 }
 
 // private
 extension World {
-    private func archetype(_ schema: ArchetypeSchema) -> Archetype {
-        if let archetype = archetypes[schema.id] {
-            return archetype
+    private mutating func ensureUniqueID() {
+        if !isKnownUniquelyReferenced(&_id) {
+            self._id = WorldID()
         }
-        let archetype = Archetype(schema: schema)
-        archetypes[schema.id] = archetype
-        for id in archetype.schema.id {
-            groups[id, default: []].insert(ArchetypeRef(archetype: archetype))
-        }
-        archetypesVersion += 1
-        return archetype
     }
 
-    private func remove(entity: EntityID, from archetype: Archetype, at index: Int) {
-        let last = archetype.get(Entity.self, at: archetype.count - 1)
-        if last.id != entity {
-            archetype.moveLast(to: index)
-            entities[last.id] = (archetype: archetype, index: index)
+    private mutating func archetypeIndex(_ schema: ArchetypeSchema) -> Int {
+        if let index = indices[schema.id] {
+            return index
         }
-        archetype.removeLast()
-        entities[entity] = nil
+        let archetype = Archetype(schema: schema)
+        archetypes.append(archetype)
+        let index = archetypes.count - 1
+        indices[archetype.schema.id] = index
+        return index
+    }
 
-        if archetype.count == 0 {
-            archetypes.removeValue(forKey: archetype.schema.id)
-            for id in archetype.schema.id {
-                groups[id]?.remove(ArchetypeRef(archetype: archetype))
-            }
-            archetypesVersion += 1
+    private mutating func removeEntity(archetypeIndex: Int, entityIndex: Int) {
+        let lastEntityIndex = archetypes[archetypeIndex].count - 1
+        let entity: Entity = archetypes[archetypeIndex][entityIndex]
+        let lastEntity: Entity = archetypes[archetypeIndex][lastEntityIndex]
+        if entityIndex != lastEntityIndex {
+            archetypes[archetypeIndex].moveLast(to: entityIndex)
+            entities[lastEntity.id] = (archetypeIndex: archetypeIndex, entityIndex: entityIndex)
         }
+        archetypes[archetypeIndex].removeLast()
+        entities[entity.id] = nil
+
+        if archetypes[archetypeIndex].count == 0 {
+            removeFromGroups(archetypeIndex: archetypeIndex)
+        }
+    }
+
+    private mutating func addToGroups(archetypeIndex: Int) {
+        for id in archetypes[archetypeIndex].schema.id {
+            groups[id, default: []].insert(archetypeIndex)
+        }
+        groupsVersion += 1
+    }
+
+    private mutating func removeFromGroups(archetypeIndex: Int) {
+        for id in archetypes[archetypeIndex].schema.id {
+            groups[id]?.remove(archetypeIndex)
+        }
+        groupsVersion += 1
     }
 }
