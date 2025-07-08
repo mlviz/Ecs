@@ -131,10 +131,11 @@ extension World {
         _ body: (inout T) throws -> Void
     ) rethrows {
         precondition(T.self != Entity.self, "Cannot update Entity of an entity")
-        
         guard isAlive(entity), let (archetypeIndex, entityIndex) = entities[entity.id]
         else { return }
         guard archetypes[archetypeIndex].contains(T.self) else { return }
+
+        ensureUniqueID()
         let pointer: UnsafeMutablePointer<T> = archetypes[archetypeIndex]
             .pointer(to: T.self)
             .advanced(by: entityIndex)
@@ -152,7 +153,8 @@ extension World {
         to type: T.Type,
         inArchetypeAt i: Int
     ) -> UnsafeMutablePointer<T> {
-        archetypes[i].pointer(to: T.self)
+        ensureUniqueID()
+        return archetypes[i].pointer(to: T.self)
     }
 }
 
