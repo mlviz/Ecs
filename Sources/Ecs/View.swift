@@ -1,9 +1,11 @@
 public struct View<each T: Component>: Sendable {
     private let included: Set<ComponentID>
     private let excluded: Set<ComponentID>
-    private var archetypes: [Int]
-    private var worldID: UInt
-    private var version: UInt
+    private var archetypes: [Int] = []
+    private var worldID: UInt = 0
+    private var version: UInt = 0
+
+    public private(set) var count: Int = 0
 
     public init(world: World, included: Set<ComponentID>, excluded: Set<ComponentID>) {
         var included = included
@@ -12,9 +14,8 @@ public struct View<each T: Component>: Sendable {
         }
         self.included = included
         self.excluded = excluded
-        archetypes = Array(world.archetypeIndices(containing: included, excluding: excluded))
-        worldID = world.id
-        version = world.groupsVersion
+
+        rebuild(for: world)
     }
 
     public func isValid(for world: World) -> Bool {
@@ -22,7 +23,14 @@ public struct View<each T: Component>: Sendable {
     }
 
     public mutating func rebuild(for world: World) {
-        archetypes = Array(world.archetypeIndices(containing: included, excluding: excluded))
+        let indices = world.archetypeIndices(containing: included, excluding: excluded)
+        archetypes = []
+        archetypes.reserveCapacity(indices.capacity)
+        count = 0
+        for index in indices {
+            archetypes.append(index)
+            count += world.entitiesCount(inArchetypeAt: index)
+        }
         worldID = world.id
         version = world.groupsVersion
     }
@@ -60,6 +68,7 @@ public struct View<each T: Component>: Sendable {
 
 public struct UnsafeView<each T: Component>: @unchecked Sendable {
     public let buffers: [(repeat UnsafeMutableBufferPointer<each T>)]
+    public let count: Int
 
     public init(world: inout World, included: Set<ComponentID>, excluded: Set<ComponentID>) {
         var included = included
@@ -69,12 +78,13 @@ public struct UnsafeView<each T: Component>: @unchecked Sendable {
         let indices = world.archetypeIndices(containing: included, excluding: excluded)
         var buffers: [(repeat UnsafeMutableBufferPointer<each T>)] = []
         buffers.reserveCapacity(indices.count)
+        var count = 0
         for index in indices {
-            let pointers: (repeat UnsafeMutableBufferPointer<each T>)
-            pointers = (repeat world.buffer(of: (each T).self, inArchetypeAt: index))
-            buffers.append(pointers)
+            buffers.append((repeat world.buffer(of: (each T).self, inArchetypeAt: index)))
+            count += world.entitiesCount(inArchetypeAt: index)
         }
         self.buffers = buffers
+        self.count = count
     }
 }
 

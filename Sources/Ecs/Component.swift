@@ -73,6 +73,13 @@ public struct ComponentArray: @unchecked Sendable {
         count += 1
     }
 
+    mutating func append(value: Any) {
+        var value = value
+        withUnsafeBytes(of: &value) {
+            append($0.baseAddress!)
+        }
+    }
+
     mutating func removeLast() {
         ensureUnique()
         count -= 1
@@ -104,12 +111,18 @@ public struct ComponentArray: @unchecked Sendable {
     }
 
     func buffer<T: Component>(of type: T.Type) -> UnsafeBufferPointer<T> {
-        UnsafeBufferPointer(buffer.pointer.assumingMemoryBound(to: T.self))
+        return UnsafeBufferPointer(
+            start: buffer.pointer.baseAddress?.assumingMemoryBound(to: T.self),
+            count: count
+        )
     }
 
     mutating func buffer<T: Component>(of type: T.Type) -> UnsafeMutableBufferPointer<T> {
         ensureUnique()
-        return buffer.pointer.assumingMemoryBound(to: T.self)
+        return UnsafeMutableBufferPointer(
+            start: buffer.pointer.baseAddress?.assumingMemoryBound(to: T.self),
+            count: count
+        )
     }
 }
 

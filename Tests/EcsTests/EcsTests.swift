@@ -318,6 +318,7 @@ struct EcsTests {
         }
 
         var view = ViewBuilder<Entity, Foo>().view(into: world)
+        #expect(view.count == entities.count)
 
         var visited: Int
 
@@ -341,6 +342,7 @@ struct EcsTests {
         #expect(!view.isValid(for: world))
         view.rebuild(for: world)
         #expect(view.isValid(for: world))
+        #expect(view.count == entities.count)
 
         visited = 0
         view.forEach(in: world) { _, _ in visited += 1 }
@@ -352,6 +354,7 @@ struct EcsTests {
 
         #expect(!view.isValid(for: world))
         view.rebuild(for: world)
+        #expect(view.count == 0)
         visited = 0
         view.forEach(in: world) { _, _ in visited += 1 }
         #expect(visited == 0)
@@ -526,6 +529,7 @@ struct EcsTests {
 
         do {
             let view1 = ViewBuilder<Position, Velocity>().unsafeView(into: &world)
+            #expect(view1.count == entities.count)
             let task1 = Task {
                 for (position, velocity) in view1 {
                     position.pointee.x += velocity.pointee.dx
@@ -534,6 +538,7 @@ struct EcsTests {
             }
 
             let view2 = ViewBuilder<Health, Damage>().unsafeView(into: &world)
+            #expect(view2.count == entities.count)
             let task2 = Task {
                 for (health, damage) in view2 {
                     health.pointee.value -= damage.pointee.value
@@ -559,5 +564,50 @@ struct EcsTests {
         for entity in entities {
             world.destroy(entity)
         }
+    }
+
+    @Test
+    mutating func createWithComponents() {
+        struct Position { var x: Float, y: Float }
+        struct Velocity { var x: Float, y: Float }
+
+        let initialPosition = Position(x: 100, y: 100)
+        let entities = (0..<1000).map { i in
+            let i = Float(i)
+            let e = world.create(
+                with: (
+                    initialPosition,
+                    Velocity(x: i * -0.5, y: i * -0.5)
+                )
+            )
+            return e
+        }
+
+        #expect(ViewBuilder<Entity>().view(into: world).count == entities.count)
+        #expect(ViewBuilder<Position>().view(into: world).count == entities.count)
+        #expect(ViewBuilder<Velocity>().view(into: world).count == entities.count)
+
+        var view = ViewBuilder<Position, Velocity>().view(into: world)
+        #expect(view.count == entities.count)
+
+        view.forEach(in: &world) { position, velocity in
+            position.pointee.x += velocity.pointee.x
+            position.pointee.y += velocity.pointee.y
+        }
+
+        view.forEach(in: world) { position, velocity in
+            #expect(position.x - velocity.x == initialPosition.x)
+            #expect(position.y - velocity.y == initialPosition.y)
+        }
+
+        for entity in entities {
+            world.destroy(entity)
+        }
+
+        view.rebuild(for: world)
+        #expect(view.count == 0)
+        #expect(ViewBuilder<Entity>().view(into: world).count == 0)
+        #expect(ViewBuilder<Position>().view(into: world).count == 0)
+        #expect(ViewBuilder<Velocity>().view(into: world).count == 0)
     }
 }

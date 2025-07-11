@@ -88,6 +88,16 @@ public struct Archetype: Sendable {
         }
     }
 
+    public mutating func append(values: [ComponentID: Any]) {
+        for i in 0..<components.count {
+            let id = schema.id[i]
+            guard let value = values[id] else {
+                preconditionFailure("Component \(id) not found")
+            }
+            components[i].append(value: value)
+        }
+    }
+
     public mutating func removeLast() {
         for i in 0..<components.count {
             components[i].removeLast()

@@ -25,15 +25,26 @@ public struct World: Sendable {
 
 // public
 extension World {
-    public mutating func create() -> Entity {
+    public mutating func create<each T: Component>(
+        with components: (repeat each T) = ()
+    ) -> Entity {
+        var schema = Self.entityArchetypeSchema
+        for type in repeat (each T).self {
+            precondition(type != Entity.self, "Cannot add Entity to an entity")
+            schema = schema.adding(type)
+        }
+
         ensureUniqueID()
 
-        var entity = entityManager.create()
-
-        let archetypeIndex = archetypeIndex(Self.entityArchetypeSchema)
-        withUnsafeMutableBytes(of: &entity) {
-            archetypes[archetypeIndex].append([Entity.componentID: $0.baseAddress!])
+        let entity = entityManager.create()
+        var values: [ComponentID: Any] = [Entity.componentID: entity]
+        for component in repeat each components {
+            values[ComponentID(type(of: component))] = component
         }
+
+        let archetypeIndex = archetypeIndex(schema)
+        archetypes[archetypeIndex].append(values: values)
+
         addToGroups(archetypeIndex: archetypeIndex)
 
         let metadata = (
@@ -190,6 +201,11 @@ extension World {
             }
         }
         return result
+    }
+
+    public func entitiesCount(inArchetypeAt i: Int) -> Int {
+        let archetype = archetypes[i]
+        return archetype.count
     }
 }
 
