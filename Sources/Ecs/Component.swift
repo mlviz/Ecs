@@ -102,6 +102,15 @@ public struct ComponentArray: @unchecked Sendable {
         let pointer = buffer.pointer.baseAddress!.advanced(by: index * layout.stride)
         return pointer
     }
+
+    func buffer<T: Component>(of type: T.Type) -> UnsafeBufferPointer<T> {
+        UnsafeBufferPointer(buffer.pointer.assumingMemoryBound(to: T.self))
+    }
+
+    mutating func buffer<T: Component>(of type: T.Type) -> UnsafeMutableBufferPointer<T> {
+        ensureUnique()
+        return buffer.pointer.assumingMemoryBound(to: T.self)
+    }
 }
 
 // private

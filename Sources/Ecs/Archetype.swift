@@ -70,7 +70,6 @@ public struct Archetype: Sendable {
             components.append(ComponentArray(layout: schema.layout[i]))
             indices[id] = components.count - 1
         }
-
     }
 
     public mutating func reserveCapacity(_ minimumCapacity: Int) {
@@ -138,19 +137,19 @@ public struct Archetype: Sendable {
         }
     }
 
-    public func pointer<T: Component>(to type: T.Type) -> UnsafePointer<T> {
+    public func buffer<T: Component>(of type: T.Type) -> UnsafeBufferPointer<T> {
         let id = ComponentID(type.self)
         guard let index = indices[id] else {
             preconditionFailure("Component \(T.self) not found in archetype.")
         }
-        return components[index].pointer(at: 0).assumingMemoryBound(to: T.self)
+        return components[index].buffer(of: T.self)
     }
 
-    public mutating func pointer<T: Component>(to type: T.Type) -> UnsafeMutablePointer<T> {
+    public mutating func buffer<T: Component>(of type: T.Type) -> UnsafeMutableBufferPointer<T> {
         let id = ComponentID(type.self)
         guard let index = indices[id] else {
             preconditionFailure("Component \(T.self) not found in archetype.")
         }
-        return components[index].pointer(at: 0).assumingMemoryBound(to: T.self)
+        return components[index].buffer(of: T.self)
     }
 }

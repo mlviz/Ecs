@@ -505,4 +505,59 @@ struct EcsTests {
         }
     }
 
+    @Test
+    mutating func mutableConcurrency() async throws {
+        struct Position { var x: Float, y: Float }
+        struct Velocity { var dx: Float, dy: Float }
+        struct Health { var value: Float }
+        struct Damage { var value: Float }
+
+        let initialPosition = Position(x: 100, y: 100)
+        let initialHealth = Health(value: 100)
+
+        let entities = (0..<100).map { _ in world.create() }
+        for (i, e) in entities.enumerated() {
+            let i = Float(i)
+            world.insert(initialPosition, for: e)
+            world.insert(initialHealth, for: e)
+            world.insert(Velocity(dx: i * -0.5, dy: i * -0.5), for: e)
+            world.insert(Damage(value: i * 0.1), for: e)
+        }
+
+        do {
+            let view1 = ViewBuilder<Position, Velocity>().unsafeView(into: &world)
+            let task1 = Task {
+                for (position, velocity) in view1 {
+                    position.pointee.x += velocity.pointee.dx
+                    position.pointee.y += velocity.pointee.dy
+                }
+            }
+
+            let view2 = ViewBuilder<Health, Damage>().unsafeView(into: &world)
+            let task2 = Task {
+                for (health, damage) in view2 {
+                    health.pointee.value -= damage.pointee.value
+                }
+            }
+
+            await (_, _) = (task1.value, task2.value)
+        }
+
+        ViewBuilder<Position, Velocity>()
+            .view(into: world)
+            .forEach(in: world) { position, velocity in
+                #expect(position.x - velocity.dx == initialPosition.x)
+                #expect(position.y - velocity.dy == initialPosition.y)
+            }
+
+        ViewBuilder<Health, Damage>()
+            .view(into: world)
+            .forEach(in: world) { health, damage in
+                #expect(health.value + damage.value == initialHealth.value)
+            }
+
+        for entity in entities {
+            world.destroy(entity)
+        }
+    }
 }

@@ -137,24 +137,59 @@ extension World {
 
         ensureUniqueID()
         let pointer: UnsafeMutablePointer<T> = archetypes[archetypeIndex]
-            .pointer(to: T.self)
+            .buffer(of: T.self)
+            .baseAddress!
             .advanced(by: entityIndex)
         try body(&pointer.pointee)
     }
 
-    public func pointer<T: Component>(
-        to type: T.Type,
+    public func buffer<T: Component>(
+        of type: T.Type,
         inArchetypeAt i: Int
-    ) -> UnsafePointer<T> {
-        archetypes[i].pointer(to: T.self)
+    ) -> UnsafeBufferPointer<T> {
+        archetypes[i].buffer(of: T.self)
     }
 
-    public mutating func pointer<T: Component>(
-        to type: T.Type,
+    public mutating func buffer<T: Component>(
+        of type: T.Type,
         inArchetypeAt i: Int
-    ) -> UnsafeMutablePointer<T> {
+    ) -> UnsafeMutableBufferPointer<T> {
         ensureUniqueID()
-        return archetypes[i].pointer(to: T.self)
+        return archetypes[i].buffer(of: T.self)
+    }
+
+    public func archetypeIndices(
+        containing included: Set<ComponentID>,
+        excluding excluded: Set<ComponentID>
+    ) -> Set<Int> {
+        var groups: [Set<Int>] = []
+        for id in included {
+            if id == Entity.componentID && included.count > 1 {
+                // can skip Entity because every Archetype has it anyways
+                // unless Entity is the only component we're looking for
+                continue
+            }
+            guard let group = self.groups[id], !group.isEmpty else { return [] }
+            groups.append(group)
+        }
+
+        let minimum = groups.enumerated().min { $0.element.count < $1.element.count }
+        guard let minimum else { return [] }
+        groups.swapAt(0, minimum.offset)
+
+        var result = groups[0]
+        for i in 1..<groups.count {
+            result.formIntersection(groups[i])
+            if result.isEmpty { return [] }
+        }
+
+        for id in excluded {
+            if let group = self.groups[id] {
+                result.subtract(group)
+                if result.isEmpty { return [] }
+            }
+        }
+        return result
     }
 }
 
