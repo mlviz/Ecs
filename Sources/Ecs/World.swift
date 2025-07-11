@@ -13,7 +13,7 @@ public struct World: Sendable {
     private var _id = WorldID()
     public var id: UInt { _id.id }
 
-    public private(set) var entityManager = CowEntityManager()
+    public private(set) var entityManager = EntityManager()
     public private(set) var entities = [(archetypeIndex: Int, entityIndex: Int)?]()
     public private(set) var archetypes = [Archetype]()
     public private(set) var indices = [ArchetypeID: Int]()

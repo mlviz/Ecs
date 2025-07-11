@@ -12,7 +12,7 @@ public struct Entity: BitwiseCopyable, Hashable, Sendable {
     static let componentID = ComponentID(Entity.self)
 }
 
-public struct CowEntityManager: Sendable {
+public struct EntityManager: Sendable {
     private var generations: [Int] = []
     private var recycled: [EntityID] = []
 
