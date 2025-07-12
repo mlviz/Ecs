@@ -29,7 +29,7 @@ public struct View<each T: Component>: Sendable {
         count = 0
         for index in indices {
             archetypes.append(index)
-            count += world.entitiesCount(inArchetypeAt: index)
+            count += world.archetypes[index].count
         }
         worldID = world.id
         version = world.groupsVersion
@@ -42,10 +42,9 @@ public struct View<each T: Component>: Sendable {
         guard isValid(for: world) else { return }
         for i in archetypes {
             let count = world.archetypes[i].count
-            let pointers: (repeat UnsafePointer<each T>)
-            pointers = (repeat world.buffer(of: (each T).self, inArchetypeAt: i).baseAddress!)
+            let buffers = (repeat world.archetypes[i].buffer(of: (each T).self))
             for j in 0..<count {
-                try body(repeat (each pointers).advanced(by: j).pointee)
+                try body(repeat (each buffers)[j])
             }
         }
     }
@@ -57,10 +56,12 @@ public struct View<each T: Component>: Sendable {
         guard isValid(for: world) else { return }
         for i in archetypes {
             let count = world.archetypes[i].count
-            let pointers: (repeat UnsafeMutablePointer<each T>)
-            pointers = (repeat world.buffer(of: (each T).self, inArchetypeAt: i).baseAddress!)
-            for j in 0..<count {
-                try body(repeat (each pointers).advanced(by: j))
+            try world.withArchetype(at: i) { archetype in
+                let pointers: (repeat UnsafeMutablePointer<each T>)
+                pointers = (repeat archetype.buffer(of: (each T).self).baseAddress!)
+                for j in 0..<count {
+                    try body(repeat (each pointers).advanced(by: j))
+                }
             }
         }
     }
@@ -80,8 +81,10 @@ public struct UnsafeView<each T: Component>: @unchecked Sendable {
         buffers.reserveCapacity(indices.count)
         var count = 0
         for index in indices {
-            buffers.append((repeat world.buffer(of: (each T).self, inArchetypeAt: index)))
-            count += world.entitiesCount(inArchetypeAt: index)
+            world.withArchetype(at: index) { archetype in
+                buffers.append((repeat archetype.buffer(of: (each T).self)))
+                count += archetype.count
+            }
         }
         self.buffers = buffers
         self.count = count

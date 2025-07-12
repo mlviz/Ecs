@@ -147,26 +147,14 @@ extension World {
         guard archetypes[archetypeIndex].contains(T.self) else { return }
 
         ensureUniqueID()
-        let pointer: UnsafeMutablePointer<T> = archetypes[archetypeIndex]
-            .buffer(of: T.self)
-            .baseAddress!
-            .advanced(by: entityIndex)
-        try body(&pointer.pointee)
+        try body(&archetypes[archetypeIndex][entityIndex])
     }
 
-    public func buffer<T: Component>(
-        of type: T.Type,
-        inArchetypeAt i: Int
-    ) -> UnsafeBufferPointer<T> {
-        archetypes[i].buffer(of: T.self)
-    }
-
-    public mutating func buffer<T: Component>(
-        of type: T.Type,
-        inArchetypeAt i: Int
-    ) -> UnsafeMutableBufferPointer<T> {
-        ensureUniqueID()
-        return archetypes[i].buffer(of: T.self)
+    public mutating func withArchetype<T>(
+        at index: Int,
+        _ body: (inout Archetype) throws -> T
+    ) rethrows -> T {
+        try body(&archetypes[index])
     }
 
     public func archetypeIndices(
@@ -201,11 +189,6 @@ extension World {
             }
         }
         return result
-    }
-
-    public func entitiesCount(inArchetypeAt i: Int) -> Int {
-        let archetype = archetypes[i]
-        return archetype.count
     }
 }
 
