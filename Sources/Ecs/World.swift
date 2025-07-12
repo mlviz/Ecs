@@ -21,6 +21,8 @@ public struct World: Sendable {
     public private(set) var groupsVersion: UInt = 0
 
     private static let entityArchetypeSchema = ArchetypeSchema(componentType: Entity.self)
+
+    public init() {}
 }
 
 // public
