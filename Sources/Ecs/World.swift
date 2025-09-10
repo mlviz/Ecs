@@ -79,7 +79,7 @@ extension World {
         named name: String,
         with components: (repeat each T)
     ) -> Entity {
-        let e = create(with: components)
+        let e = create(with: (repeat each components))
         setName(name, for: e)
         return e
     }
