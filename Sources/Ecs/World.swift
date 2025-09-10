@@ -20,6 +20,10 @@ public struct World: Sendable {
     public private(set) var groups = [ComponentID: Set<Int>]()
     public private(set) var groupsVersion: UInt = 0
 
+    // Auxiliary naming maps (not part of ECS component storage)
+    public private(set) var entityNames: [EntityID: String] = [:]
+    public private(set) var nameEntities: [String: Set<EntityID>] = [:]
+
     private static let entityArchetypeSchema = ArchetypeSchema(componentType: Entity.self)
 
     public init() {}
@@ -63,18 +67,42 @@ extension World {
         return entity
     }
 
+    // Convenience: create and assign a name in the external map
+    public mutating func create(named name: String) -> Entity {
+        let e = create(with: ())
+        setName(name, for: e)
+        return e
+    }
+
+    // Convenience: create with components and a name in one call
+    public mutating func create<each T: Component>(
+        named name: String,
+        with components: (repeat each T)
+    ) -> Entity {
+        let e = create(with: components)
+        setName(name, for: e)
+        return e
+    }
+
     public func isAlive(_ entity: Entity) -> Bool {
         entityManager.isAlive(entity)
     }
 
     public mutating func destroy(_ entity: Entity) {
-        guard isAlive(entity) else { return }
+        guard isAlive(entity) else {
+            // still clear any stale name entries if present
+            removeName(for: entity)
+            return
+        }
 
         ensureUniqueID()
 
         if let (archetypeIndex, entityIndex) = entities[entity.id] {
             removeEntity(archetypeIndex: archetypeIndex, entityIndex: entityIndex)
         }
+        // Remove from naming maps
+        removeName(for: entity)
+
         entityManager.destroy(entity)
     }
 
@@ -188,6 +216,57 @@ extension World {
             if let group = self.groups[id] {
                 result.subtract(group)
                 if result.isEmpty { return [] }
+            }
+        }
+        return result
+    }
+}
+
+// Naming helpers (external to ECS storage)
+extension World {
+    public mutating func setName(_ name: String, for entity: Entity) {
+        ensureUniqueID()
+        if let old = entityNames[entity.id], old != name {
+            var set = nameEntities[old] ?? []
+            set.remove(entity.id)
+            if set.isEmpty { nameEntities.removeValue(forKey: old) } else { nameEntities[old] = set }
+        }
+        entityNames[entity.id] = name
+        var set = nameEntities[name] ?? []
+        set.insert(entity.id)
+        nameEntities[name] = set
+    }
+
+    public func name(of entity: Entity) -> String? {
+        entityNames[entity.id]
+    }
+
+    public func nameOrDefault(of entity: Entity) -> String {
+        name(of: entity) ?? "Entity-\(entity.id)"
+    }
+
+    public func debugLabel(for entity: Entity) -> String {
+        "\(nameOrDefault(of: entity)) [\(entity.id)#\(entity.generation)]"
+    }
+
+    public mutating func removeName(for entity: Entity) {
+        ensureUniqueID()
+        if let old = entityNames.removeValue(forKey: entity.id) {
+            var set = nameEntities[old] ?? []
+            set.remove(entity.id)
+            if set.isEmpty { nameEntities.removeValue(forKey: old) } else { nameEntities[old] = set }
+        }
+    }
+
+    public func lookup(byName name: String) -> Set<Entity> {
+        guard let ids = nameEntities[name], !ids.isEmpty else { return [] }
+        var result: Set<Entity> = []
+        result.reserveCapacity(ids.count)
+        for id in ids {
+            if id < entities.count, let (archIdx, entIdx) = entities[id] {
+                if let e: Entity = archetypes[archIdx].get(Entity.self, at: entIdx) {
+                    result.insert(e)
+                }
             }
         }
         return result
